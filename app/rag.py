@@ -1,12 +1,15 @@
 
+import os
+
 import httpx
+from dotenv import load_dotenv
 
 from app.vector_store import search_chunks
 
+load_dotenv()
 
-OLLAMA_URL = "http://localhost:11434/api/chat"
-OLLAMA_MODEL = "llama3.2"
-
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL = "openai/gpt-oss-20b"
 
 SYSTEM_PROMPT = """
 You are Genaibot, a helpful document question-answering assistant.
@@ -36,10 +39,9 @@ def build_prompt(question: str, chunks: list[dict]) -> str:
     return (
         f"DOCUMENT CONTEXT:\n{context}\n\n"
         f"USER QUESTION:\n{question}\n\n"
-        "Answer the question using the document context. "
-        "Cite the relevant source filename. If the context is "
-        "insufficient, say that the documents do not provide "
-        "enough information."
+        "Answer using the document context. Cite relevant source "
+        "filenames. If the context is insufficient, say that the "
+        "documents do not provide enough information."
     )
 
 
@@ -64,42 +66,62 @@ async def ask_question(
             "sources": [],
         }
 
-    prompt = build_prompt(question, chunks)
+    api_key = os.getenv("GROQ_API_KEY")
+
+    if not api_key:
+        raise RuntimeError(
+            "GROQ_API_KEY is missing. Add it to your .env file."
+        )
 
     payload = {
-        "model": OLLAMA_MODEL,
+        "model": GROQ_MODEL,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
+            {
+                "role": "user",
+                "content": build_prompt(question, chunks),
+            },
         ],
+        "temperature": 0.1,
         "stream": False,
-        "options": {"temperature": 0.1},
+    }
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
     }
 
     try:
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            response = await client.post(OLLAMA_URL, json=payload)
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(
+                GROQ_URL,
+                headers=headers,
+                json=payload,
+            )
             response.raise_for_status()
             result = response.json()
 
-    except httpx.ConnectError as exc:
-        raise RuntimeError(
-            "Ollama is not running. Install and start Ollama, "
-            "then download the llama3.2 model."
-        ) from exc
-
     except httpx.HTTPStatusError as exc:
         raise RuntimeError(
-            f"Ollama returned HTTP {exc.response.status_code}: "
-            f"{exc.response.text[:300]}"
+            f"Groq returned HTTP {exc.response.status_code}. "
+            "Check your API key, model availability, and usage limits."
         ) from exc
 
-    answer = result.get("message", {}).get("content", "").strip()
+    except httpx.RequestError as exc:
+        raise RuntimeError(
+            "Could not connect to Groq. Check your internet connection."
+        ) from exc
+
+    answer = (
+        result.get("choices", [{}])[0]
+        .get("message", {})
+        .get("content", "")
+        .strip()
+    )
 
     if not answer:
         raise RuntimeError("The language model returned an empty answer.")
 
-    # Deduplicate source names while preserving their order.
     sources = list(dict.fromkeys(chunk["source"] for chunk in chunks))
 
     return {
