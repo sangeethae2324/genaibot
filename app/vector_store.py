@@ -2,7 +2,7 @@
 from pathlib import Path
 
 import chromadb
-from sentence_transformers import SentenceTransformer
+from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
 
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
@@ -10,22 +10,8 @@ DB_DIR = DATA_DIR / "chroma_db"
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-# A lightweight multilingual embedding model.
-EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-
-_embedding_model = None
 _client = None
 _collection = None
-
-
-def get_embedding_model():
-    """Load the embedding model only when needed."""
-    global _embedding_model
-
-    if _embedding_model is None:
-        _embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
-
-    return _embedding_model
 
 
 def get_collection():
@@ -37,6 +23,7 @@ def get_collection():
         _collection = _client.get_or_create_collection(
             name="genaibot_documents",
             metadata={"hnsw:space": "cosine"},
+            embedding_function=DefaultEmbeddingFunction(),
         )
 
     return _collection
@@ -47,18 +34,11 @@ def index_chunks(
     source: str,
     document_id: str,
 ) -> int:
-    """Embed and store document chunks in ChromaDB."""
+    """Embed and store document chunks using ChromaDB."""
     if not chunks:
         return 0
 
-    model = get_embedding_model()
     collection = get_collection()
-
-    embeddings = model.encode(
-        chunks,
-        normalize_embeddings=True,
-        show_progress_bar=False,
-    ).tolist()
 
     ids = [f"{document_id}_{i}" for i in range(len(chunks))]
 
@@ -71,11 +51,9 @@ def index_chunks(
         for i in range(len(chunks))
     ]
 
-    # Upsert allows the same chunk IDs to be updated.
     collection.upsert(
         ids=ids,
         documents=chunks,
-        embeddings=embeddings,
         metadatas=metadatas,
     )
 
@@ -83,7 +61,7 @@ def index_chunks(
 
 
 def search_chunks(query: str, top_k: int = 4) -> list[dict]:
-    """Retrieve the most relevant chunks for a question."""
+    """Retrieve relevant document chunks for a question."""
     if not query.strip():
         return []
 
@@ -91,24 +69,17 @@ def search_chunks(query: str, top_k: int = 4) -> list[dict]:
         raise ValueError("top_k must be at least 1.")
 
     collection = get_collection()
+    total_chunks = collection.count()
 
-    if collection.count() == 0:
+    if total_chunks == 0:
         return []
 
-    model = get_embedding_model()
-    query_embedding = model.encode(
-        [query],
-        normalize_embeddings=True,
-        show_progress_bar=False,
-    ).tolist()[0]
-
     results = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=min(top_k, collection.count()),
+        query_texts=[query],
+        n_results=min(top_k, total_chunks),
         include=["documents", "metadatas", "distances"],
     )
 
-    
     documents = results["documents"][0]
     metadatas = results["metadatas"][0]
     distances = results["distances"][0]
@@ -137,8 +108,4 @@ def search_chunks(query: str, top_k: int = 4) -> list[dict]:
             }
         )
 
-        if len(valid_results) >= top_k:
-            break
-
     return valid_results
-
