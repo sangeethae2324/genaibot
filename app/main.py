@@ -9,7 +9,6 @@ from app.ingestion import process_document
 from app.rag import ask_question
 from app.vector_store import index_chunks
 
-
 app = FastAPI(
     title="Genaibot API",
     description="A document-grounded Generative AI chatbot.",
@@ -19,13 +18,14 @@ app = FastAPI(
 DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "uploads"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+MAX_FILE_SIZE = 10 * 1024 * 1024
 ALLOWED_EXTENSIONS = {".pdf", ".txt"}
 
 
 class ChatRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
     top_k: int = Field(default=4, ge=1, le=10)
+    document_id: str | None = None
 
 
 @app.get("/")
@@ -114,6 +114,7 @@ async def chat(request: ChatRequest):
         return await ask_question(
             question=request.question,
             top_k=request.top_k,
+            document_id=request.document_id,
         )
 
     except ValueError as exc:

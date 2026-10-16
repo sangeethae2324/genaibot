@@ -48,6 +48,7 @@ def build_prompt(question: str, chunks: list[dict]) -> str:
 async def ask_question(
     question: str,
     top_k: int = 4,
+    document_id: str | None = None,
 ) -> dict:
     """Retrieve document context and generate a grounded answer."""
     question = question.strip()
@@ -55,13 +56,18 @@ async def ask_question(
     if not question:
         raise ValueError("Question cannot be empty.")
 
-    chunks = search_chunks(question, top_k=top_k)
+    chunks = search_chunks(
+        question,
+        top_k=top_k,
+        document_id=document_id,
+    )
 
     if not chunks:
         return {
             "answer": (
-                "I couldn't find any indexed document information. "
-                "Please upload and index a document first."
+                "I couldn't find relevant information in the selected "
+                "document. Please check that the document was uploaded "
+                "and indexed successfully, or select another document."
             ),
             "sources": [],
             "citations": [],
@@ -123,9 +129,7 @@ async def ask_question(
     if not answer:
         raise RuntimeError("The language model returned an empty answer.")
 
-    sources = list(
-        dict.fromkeys(chunk["source"] for chunk in chunks)
-    )
+    sources = list(dict.fromkeys(chunk["source"] for chunk in chunks))
 
     citations = [
         {

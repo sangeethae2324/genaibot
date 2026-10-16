@@ -1,4 +1,3 @@
-
 from pathlib import Path
 
 import chromadb
@@ -60,8 +59,12 @@ def index_chunks(
     return len(chunks)
 
 
-def search_chunks(query: str, top_k: int = 4) -> list[dict]:
-    """Retrieve relevant document chunks for a question."""
+def search_chunks(
+    query: str,
+    top_k: int = 4,
+    document_id: str | None = None,
+) -> list[dict]:
+    """Retrieve relevant chunks, optionally from one document."""
     if not query.strip():
         return []
 
@@ -74,11 +77,37 @@ def search_chunks(query: str, top_k: int = 4) -> list[dict]:
     if total_chunks == 0:
         return []
 
-    results = collection.query(
-        query_texts=[query],
-        n_results=min(top_k, total_chunks),
-        include=["documents", "metadatas", "distances"],
+    # Filter retrieval to the requested document when an ID is supplied.
+    where_filter = (
+        {"document_id": document_id}
+        if document_id
+        else None
     )
+
+    if where_filter:
+        matching = collection.get(
+            where=where_filter,
+            include=["metadatas"],
+        )
+        matching_count = len(matching.get("metadatas") or [])
+
+        if matching_count == 0:
+            return []
+
+        result_count = min(top_k, matching_count)
+    else:
+        result_count = min(top_k, total_chunks)
+
+    query_args = {
+        "query_texts": [query],
+        "n_results": result_count,
+        "include": ["documents", "metadatas", "distances"],
+    }
+
+    if where_filter:
+        query_args["where"] = where_filter
+
+    results = collection.query(**query_args)
 
     documents = results["documents"][0]
     metadatas = results["metadatas"][0]
@@ -93,16 +122,16 @@ def search_chunks(query: str, top_k: int = 4) -> list[dict]:
             continue
 
         source = metadata.get("source")
-        document_id = metadata.get("document_id")
+        stored_document_id = metadata.get("document_id")
 
-        if not source or not document_id:
+        if not source or not stored_document_id:
             continue
 
         valid_results.append(
             {
                 "text": document,
                 "source": source,
-                "document_id": document_id,
+                "document_id": stored_document_id,
                 "chunk_index": metadata.get("chunk_index", -1),
                 "distance": distance,
             }
