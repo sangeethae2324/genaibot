@@ -4,9 +4,8 @@ import os
 import httpx
 import streamlit as st
 
-# Keep the existing backend configuration.
+# -------------------- Backend configuration --------------------
 
-# Keep local development and Streamlit Cloud working.
 try:
     API_URL = st.secrets["API_URL"]
 except (KeyError, FileNotFoundError):
@@ -14,6 +13,7 @@ except (KeyError, FileNotFoundError):
 
 API_URL = API_URL.rstrip("/")
 
+# -------------------- Page configuration --------------------
 
 st.set_page_config(
     page_title="Genaibot | AI Document Assistant",
@@ -86,11 +86,41 @@ if "messages" not in st.session_state:
 if "uploaded_documents" not in st.session_state:
     st.session_state.uploaded_documents = []
 
+# -------------------- Citation display helper --------------------
+
+def display_citations(message):
+    """Display detailed citations, with backward compatibility."""
+    citations = message.get("citations", [])
+    sources = message.get("sources", [])
+
+    if citations:
+        with st.expander("📚 View supporting evidence"):
+            for index, citation in enumerate(citations, start=1):
+                filename = citation.get("filename", "Unknown document")
+                chunk_index = citation.get("chunk_index", "Unknown")
+                excerpt = citation.get("excerpt", "")
+
+                st.markdown(f"**Source {index}: `{filename}`**")
+                st.caption(f"Retrieved chunk: {chunk_index}")
+
+                if excerpt:
+                    st.markdown(f"> {excerpt}")
+
+                st.divider()
+
+    elif sources:
+        with st.expander("📚 View sources"):
+            for source in sources:
+                st.markdown(f"- `{source}`")
+
+
 # -------------------- Sidebar --------------------
 
 with st.sidebar:
     st.markdown("## 📚 Knowledge Base")
-    st.caption("Upload a document to start asking questions about its contents.")
+    st.caption(
+        "Upload a document to ask questions about its contents."
+    )
 
     uploaded_file = st.file_uploader(
         "Choose a PDF or TXT file",
@@ -126,23 +156,27 @@ with st.sidebar:
                 chunks = result.get("chunks_indexed", 0)
 
                 st.session_state.uploaded_documents.append(
-                    {"filename": filename, "chunks": chunks}
+                    {
+                        "filename": filename,
+                        "chunks": chunks,
+                    }
                 )
 
                 st.success("Document indexed successfully!")
                 st.markdown(f"**File:** {filename}")
                 st.metric("Text chunks indexed", chunks)
+
             else:
                 st.error(
                     f"Upload failed ({response.status_code}): "
                     f"{response.text[:400]}"
                 )
 
-        except httpx.RequestError as exc:
+        except httpx.RequestError:
             st.error(
-                "Couldn't reach the backend. Please try again in a moment."
+                "Couldn't reach the backend. "
+                "Please check that the API is running."
             )
-            st.caption(str(exc)[:250])
 
     if st.session_state.uploaded_documents:
         st.divider()
@@ -166,8 +200,10 @@ st.markdown(
     """
     <div class="hero">
         <h1>🤖 Genaibot</h1>
-        <p>Your AI document assistant. Upload a document, ask a question,
-        and explore its contents through conversational AI.</p>
+        <p>
+            Your AI document assistant. Upload a document, ask a question,
+            and explore its contents through conversational AI.
+        </p>
     </div>
     """,
     unsafe_allow_html=True,
@@ -177,6 +213,8 @@ st.markdown(
     '<p class="section-label">Document conversation</p>',
     unsafe_allow_html=True,
 )
+
+# -------------------- Starter questions --------------------
 
 if not st.session_state.messages:
     st.subheader("What would you like to know?")
@@ -191,10 +229,10 @@ if not st.session_state.messages:
         "Explain the main concepts",
     ]
 
-    cols = st.columns(len(suggestions))
+    columns = st.columns(len(suggestions))
 
-    for col, suggestion in zip(cols, suggestions):
-        with col:
+    for column, suggestion in zip(columns, suggestions):
+        with column:
             if st.button(suggestion, use_container_width=True):
                 st.session_state.pending_question = suggestion
                 st.rerun()
@@ -204,11 +242,7 @@ if not st.session_state.messages:
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
-
-        if message.get("sources"):
-            with st.expander("📚 View sources"):
-                for source in message["sources"]:
-                    st.markdown(f"- `{source}`")
+        display_citations(message)
 
 # -------------------- Chat input --------------------
 
@@ -220,7 +254,10 @@ if pending_question:
 
 if question:
     st.session_state.messages.append(
-        {"role": "user", "content": question}
+        {
+            "role": "user",
+            "content": question,
+        }
     )
 
     with st.chat_message("user"):
@@ -228,40 +265,43 @@ if question:
 
     with st.chat_message("assistant"):
         try:
-            with st.spinner("Searching your documents and generating an answer..."):
+            with st.spinner(
+                "Searching your documents and generating an answer..."
+            ):
                 response = httpx.post(
                     f"{API_URL}/chat",
-                    json={"question": question, "top_k": 4},
+                    json={
+                        "question": question,
+                        "top_k": 4,
+                    },
                     timeout=190.0,
                 )
 
             if response.is_success:
                 result = response.json()
-                answer = result["answer"]
+                answer = result.get("answer", "")
                 sources = result.get("sources", [])
+                citations = result.get("citations", [])
 
                 st.markdown(answer)
 
-                if sources:
-                    with st.expander("📚 View sources"):
-                        for source in sources:
-                            st.markdown(f"- `{source}`")
-                else:
-                    st.caption("No source documents were returned for this answer.")
+                assistant_message = {
+                    "role": "assistant",
+                    "content": answer,
+                    "sources": sources,
+                    "citations": citations,
+                }
 
-                st.session_state.messages.append(
-                    {
-                        "role": "assistant",
-                        "content": answer,
-                        "sources": sources,
-                    }
-                )
+                display_citations(assistant_message)
+
+                st.session_state.messages.append(assistant_message)
 
             else:
                 error_message = (
-                    f"The API returned an error ({response.status_code}). "
-                    "Please try again."
+                    f"The API returned an error "
+                    f"({response.status_code}). Please try again."
                 )
+
                 st.error(error_message)
                 st.caption(response.text[:400])
 
@@ -277,6 +317,7 @@ if question:
                 "I couldn't connect to Genaibot's backend. "
                 "Please try again shortly."
             )
+
             st.error(error_message)
 
             st.session_state.messages.append(

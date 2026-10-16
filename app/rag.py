@@ -64,6 +64,7 @@ async def ask_question(
                 "Please upload and index a document first."
             ),
             "sources": [],
+            "citations": [],
         }
 
     api_key = os.getenv("GROQ_API_KEY")
@@ -122,9 +123,21 @@ async def ask_question(
     if not answer:
         raise RuntimeError("The language model returned an empty answer.")
 
-    sources = list(dict.fromkeys(chunk["source"] for chunk in chunks))
+    sources = list(
+        dict.fromkeys(chunk["source"] for chunk in chunks)
+    )
+
+    citations = [
+        {
+            "filename": chunk["source"],
+            "chunk_index": chunk.get("chunk_index", 0) + 1,
+            "excerpt": chunk["text"][:500].strip(),
+        }
+        for chunk in chunks
+    ]
 
     return {
         "answer": answer,
         "sources": sources,
+        "citations": citations,
     }
