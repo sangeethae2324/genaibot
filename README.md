@@ -2,6 +2,12 @@
 
 Genaibot is a Retrieval-Augmented Generation (RAG) chatbot that answers questions using information from uploaded documents. It retrieves relevant document chunks and uses a local large language model to generate context-aware answers.
 
+## Live Demo
+
+**Try Genaibot here:** [Launch Genaibot](https://genaibot-moncwc8aqraluvkd5z9twf.streamlit.app/)
+
+Upload a PDF or TXT document and ask questions about its contents.
+
 ## Features
 
 - Upload PDF and TXT documents.
@@ -30,13 +36,13 @@ Genaibot is a Retrieval-Augmented Generation (RAG) chatbot that answers question
 ```text
 genaichatbot/
 +-- app/
-¦   +-- __init__.py
-¦   +-- config.py
-¦   +-- ingestion.py
-¦   +-- vector_store.py
-¦   +-- rag.py
-¦   +-- main.py
-¦   +-- ui.py
+Â¦   +-- __init__.py
+Â¦   +-- config.py
+Â¦   +-- ingestion.py
+Â¦   +-- vector_store.py
+Â¦   +-- rag.py
+Â¦   +-- main.py
+Â¦   +-- ui.py
 +-- data/
 +-- tests/
 +-- .env
